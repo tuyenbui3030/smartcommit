@@ -43,12 +43,12 @@ fi
 
 # -------- get user input --------
 echo ""
-read -r -p "API Host (e.g., https://api.openai.com): " AI_HOST
+read -r -p "API Host (e.g., https://api.openai.com): " AI_HOST < /dev/tty
 AI_HOST=${AI_HOST%/}
 
-read -r -p "API Key: " AI_KEY
+read -r -p "API Key: " AI_KEY < /dev/tty
 
-read -r -p "Model (default: gpt-4): " AI_MODEL
+read -r -p "Model (default: gpt-4): " AI_MODEL < /dev/tty
 AI_MODEL=${AI_MODEL:-gpt-4}
 
 echo ""
