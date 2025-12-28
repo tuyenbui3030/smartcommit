@@ -27,7 +27,7 @@
 #   fix/JIRA-88-bug       → fix: #JIRA-88 <message>
 # ============================================================
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 
 # -------- parse arguments --------
 SKIP_CONFIRM=false
