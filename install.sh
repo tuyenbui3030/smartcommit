@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 
 # ============================================================
-# git-ai installer
+# smartcommit installer
+# https://github.com/tuyenbui3030/smartcommit
 # ============================================================
 
 set -e
 
+VERSION="1.0.0"
+REPO_URL="https://raw.githubusercontent.com/tuyenbui3030/smartcommit/main"
+INSTALL_PATH="/usr/local/bin/git-ai"
+CONFIG_DIR="$HOME/.config/git-ai"
+CONFIG_FILE="$CONFIG_DIR/config"
+
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🤖 git-ai installer"
+echo "🤖 smartcommit installer v$VERSION"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -22,7 +29,20 @@ if ! command -v curl &> /dev/null; then
   exit 1
 fi
 
+# -------- download git-ai --------
+echo "📥 Downloading git-ai..."
+TMP_FILE=$(mktemp)
+trap "rm -f $TMP_FILE" EXIT
+
+HTTP_STATUS=$(curl -s -w "%{http_code}" -o "$TMP_FILE" "$REPO_URL/git-ai")
+
+if [ "$HTTP_STATUS" != "200" ]; then
+  echo "❌ Failed to download git-ai (HTTP $HTTP_STATUS)"
+  exit 1
+fi
+
 # -------- get user input --------
+echo ""
 read -r -p "API Host (e.g., https://api.openai.com): " AI_HOST
 AI_HOST=${AI_HOST%/}
 
@@ -45,17 +65,11 @@ if [ -z "$AI_KEY" ]; then
 fi
 
 # -------- install git-ai --------
-INSTALL_PATH="/usr/local/bin/git-ai"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
 echo "📦 Installing git-ai to $INSTALL_PATH..."
-sudo cp "$SCRIPT_DIR/git-ai" "$INSTALL_PATH"
+sudo cp "$TMP_FILE" "$INSTALL_PATH"
 sudo chmod +x "$INSTALL_PATH"
 
 # -------- save config --------
-CONFIG_DIR="$HOME/.config/git-ai"
-CONFIG_FILE="$CONFIG_DIR/config"
-
 echo "📝 Saving config to $CONFIG_FILE..."
 
 mkdir -p "$CONFIG_DIR"
