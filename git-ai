@@ -134,24 +134,24 @@ if [ -z "$BRANCH" ]; then
 fi
 
 # -------- type from branch --------
-# Support flexible prefixes: vfa/feat/xxx, team/fix/abc, or traditional feat/xxx
-if [[ "$BRANCH" =~ (^|/)(fix|bugfix|hotfix)($|/) ]]; then
+# Support flexible prefixes: vfa/feat/xxx, team/fix/#2, or traditional feat/xxx
+if [[ "$BRANCH" =~ (^|/)(fix|bugfix|hotfix)($|/|[^a-z]) ]]; then
   TYPE="fix"
-elif [[ "$BRANCH" =~ (^|/)(feat|feature)($|/) ]]; then
+elif [[ "$BRANCH" =~ (^|/)(feat|feature)($|/|[^a-z]) ]]; then
   TYPE="feat"
-elif [[ "$BRANCH" =~ (^|/)(chore)($|/) ]]; then
+elif [[ "$BRANCH" =~ (^|/)(chore)($|/|[^a-z]) ]]; then
   TYPE="chore"
-elif [[ "$BRANCH" =~ (^|/)(docs)($|/) ]]; then
+elif [[ "$BRANCH" =~ (^|/)(docs)($|/|[^a-z]) ]]; then
   TYPE="docs"
-elif [[ "$BRANCH" =~ (^|/)(refactor)($|/) ]]; then
+elif [[ "$BRANCH" =~ (^|/)(refactor)($|/|[^a-z]) ]]; then
   TYPE="refactor"
-elif [[ "$BRANCH" =~ (^|/)(test|tests)($|/) ]]; then
+elif [[ "$BRANCH" =~ (^|/)(test|tests)($|/|[^a-z]) ]]; then
   TYPE="test"
-elif [[ "$BRANCH" =~ (^|/)(style)($|/) ]]; then
+elif [[ "$BRANCH" =~ (^|/)(style)($|/|[^a-z]) ]]; then
   TYPE="style"
-elif [[ "$BRANCH" =~ (^|/)(perf)($|/) ]]; then
+elif [[ "$BRANCH" =~ (^|/)(perf)($|/|[^a-z]) ]]; then
   TYPE="perf"
-elif [[ "$BRANCH" =~ (^|/)(ci)($|/) ]]; then
+elif [[ "$BRANCH" =~ (^|/)(ci)($|/|[^a-z]) ]]; then
   TYPE="ci"
 else
   echo "❌ Branch must contain: feat/, fix/, chore/, docs/, refactor/, test/, style/, perf/, ci/"
