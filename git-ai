@@ -134,7 +134,7 @@ if [ -z "$BRANCH" ]; then
 fi
 
 # -------- type from branch --------
-# Support flexible prefixes: vfa/feat/xxx, team/fix/#2, or traditional feat/xxx
+# Try to detect type from branch name, otherwise let AI decide
 if [[ "$BRANCH" =~ (^|/)(fix|bugfix|hotfix)($|/|[^a-z]) ]]; then
   TYPE="fix"
 elif [[ "$BRANCH" =~ (^|/)(feat|feature)($|/|[^a-z]) ]]; then
@@ -154,14 +154,14 @@ elif [[ "$BRANCH" =~ (^|/)(perf)($|/|[^a-z]) ]]; then
 elif [[ "$BRANCH" =~ (^|/)(ci)($|/|[^a-z]) ]]; then
   TYPE="ci"
 else
-  echo "❌ Branch must contain: feat/, fix/, chore/, docs/, refactor/, test/, style/, perf/, ci/"
-  echo "   Current branch: $BRANCH"
-  exit 1
+  TYPE=""
 fi
 
 # -------- ticket from branch --------
-if [[ "$BRANCH" =~ ([A-Z]+-[0-9]+|[0-9]{3,}) ]]; then
+# Match: ABC-123, #2, #123, or 3+ digit numbers
+if [[ "$BRANCH" =~ ([A-Z]+-[0-9]+|#[0-9]+|[0-9]{3,}) ]]; then
   TICKET="${BASH_REMATCH[1]}"
+  TICKET="${TICKET#\#}"  # Remove leading # if present
 else
   TICKET=""
 fi
@@ -180,7 +180,9 @@ echo "🤖 Generating commit message..."
 # Truncate diff if too long (max 4000 chars)
 DIFF_TRUNCATED=$(echo "$DIFF" | head -c 4000)
 
-PROMPT="Generate a short git commit message body (max 50 chars). 
+# Build prompt based on whether we detected a type
+if [ -n "$TYPE" ]; then
+  PROMPT="Generate a short git commit message body (max 50 chars). 
 Do not include type prefix or ticket number.
 Use present tense, lowercase.
 Only output the message text, nothing else.
@@ -188,6 +190,17 @@ Do not wrap in quotes.
 
 Diff:
 $DIFF_TRUNCATED"
+else
+  PROMPT="Generate a short git commit message with type prefix (max 60 chars).
+Use conventional commit format: type: message
+Types: feat, fix, chore, docs, refactor, test, style, perf, ci
+Use present tense, lowercase.
+Only output the commit message, nothing else.
+Do not wrap in quotes.
+
+Diff:
+$DIFF_TRUNCATED"
+fi
 
 PROMPT_ESCAPED=$(echo "$PROMPT" | jq -Rs .)
 
@@ -254,10 +267,25 @@ fi
 MESSAGE=$(echo "$MESSAGE" | tr -d '\n' | sed 's/^["'"'"']*//;s/["'"'"']*$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | head -c 60)
 
 # Build commit message
-if [ -n "$TICKET" ]; then
-  COMMIT_MSG="$TYPE: #$TICKET $MESSAGE"
+if [ -n "$TYPE" ]; then
+  # Type detected from branch
+  if [ -n "$TICKET" ]; then
+    COMMIT_MSG="$TYPE: #$TICKET $MESSAGE"
+  else
+    COMMIT_MSG="$TYPE: $MESSAGE"
+  fi
 else
-  COMMIT_MSG="$TYPE: $MESSAGE"
+  # AI generated full message with type
+  if [ -n "$TICKET" ]; then
+    # Insert ticket after type prefix (e.g., "feat: msg" -> "feat: #123 msg")
+    if [[ "$MESSAGE" =~ ^([a-z]+):(.*)$ ]]; then
+      COMMIT_MSG="${BASH_REMATCH[1]}: #$TICKET${BASH_REMATCH[2]}"
+    else
+      COMMIT_MSG="#$TICKET $MESSAGE"
+    fi
+  else
+    COMMIT_MSG="$MESSAGE"
+  fi
 fi
 
 echo ""
