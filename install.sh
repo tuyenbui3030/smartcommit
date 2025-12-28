@@ -7,7 +7,7 @@
 
 set -e
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 REPO_URL="https://raw.githubusercontent.com/tuyenbui3030/smartcommit/main"
 INSTALL_PATH="/usr/local/bin/git-ai"
 CONFIG_DIR="$HOME/.config/git-ai"
