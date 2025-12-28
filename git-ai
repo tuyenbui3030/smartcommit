@@ -1,0 +1,287 @@
+#!/usr/bin/env bash
+
+# ============================================================
+# git-ai: AI-powered commit message generator
+# ============================================================
+# 
+# Usage: git ai [options]
+# 
+# Options:
+#   -h, --help      Show this help message
+#   -v, --version   Show version
+#   -y, --yes       Skip confirmation prompt
+#   --setup         Configure API settings
+#
+# Environment variables:
+#   GIT_AI_URL     - API endpoint (required)
+#   GIT_AI_KEY     - API key (required)
+#   GIT_AI_MODEL   - Model name (default: gpt-4)
+#
+# Example:
+#   export GIT_AI_URL="https://api.openai.com/v1/chat/completions"
+#   export GIT_AI_KEY="sk-xxx"
+#   export GIT_AI_MODEL="gpt-4"
+#
+# Branch naming convention:
+#   feat/123-description  → feat: #123 <message>
+#   fix/JIRA-88-bug       → fix: #JIRA-88 <message>
+# ============================================================
+
+VERSION="1.0.0"
+
+# -------- parse arguments --------
+SKIP_CONFIRM=false
+EXTRA_ARGS=()
+
+for arg in "$@"; do
+  case $arg in
+    -h|--help)
+      sed -n '3,26p' "$0" | sed 's/^# //' | sed 's/^#//'
+      exit 0
+      ;;
+    -v|--version)
+      echo "git-ai v$VERSION"
+      exit 0
+      ;;
+    --setup)
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🤖 git-ai setup"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      read -r -p "API Host (e.g., https://api.openai.com): " SETUP_HOST
+      SETUP_HOST=${SETUP_HOST%/}
+      read -r -p "API Key: " SETUP_KEY
+      read -r -p "Model (default: gpt-4): " SETUP_MODEL
+      SETUP_MODEL=${SETUP_MODEL:-gpt-4}
+      
+      if [ -z "$SETUP_HOST" ] || [ -z "$SETUP_KEY" ]; then
+        echo "❌ Host and Key are required"
+        exit 1
+      fi
+      
+      mkdir -p "$HOME/.config/git-ai"
+      cat > "$HOME/.config/git-ai/config" << EOF
+GIT_AI_URL="$SETUP_HOST/v1/chat/completions"
+GIT_AI_KEY="$SETUP_KEY"
+GIT_AI_MODEL="$SETUP_MODEL"
+EOF
+      chmod 600 "$HOME/.config/git-ai/config"
+      
+      echo ""
+      echo "✅ Config saved to ~/.config/git-ai/config"
+      echo ""
+      echo "🔧 Configuration:"
+      echo "   URL   = $SETUP_HOST/v1/chat/completions"
+      echo "   KEY   = ${SETUP_KEY:0:10}..."
+      echo "   MODEL = $SETUP_MODEL"
+      exit 0
+      ;;
+    -y|--yes)
+      SKIP_CONFIRM=true
+      ;;
+    *)
+      EXTRA_ARGS+=("$arg")
+      ;;
+  esac
+done
+
+# -------- check requirements --------
+if ! command -v jq &> /dev/null; then
+  echo "❌ jq is required. Install: brew install jq"
+  exit 1
+fi
+
+if ! command -v curl &> /dev/null; then
+  echo "❌ curl is required."
+  exit 1
+fi
+
+# -------- load config file --------
+CONFIG_FILE="$HOME/.config/git-ai/config"
+
+if [ -f "$CONFIG_FILE" ]; then
+  source "$CONFIG_FILE"
+fi
+
+# -------- check config --------
+if [ -z "${GIT_AI_URL:-}" ]; then
+  echo "❌ GIT_AI_URL is not set"
+  echo ""
+  echo "Run: git ai --setup"
+  exit 1
+fi
+
+if [ -z "${GIT_AI_KEY:-}" ]; then
+  echo "❌ GIT_AI_KEY is not set"
+  echo ""
+  echo "Run: git ai --setup"
+  exit 1
+fi
+
+GIT_AI_MODEL="${GIT_AI_MODEL:-gpt-4}"
+
+# -------- check git state --------
+if ! git rev-parse --git-dir &> /dev/null; then
+  echo "❌ Not a git repository"
+  exit 1
+fi
+
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+if [ -z "$BRANCH" ]; then
+  echo "❌ Not on a branch (detached HEAD)"
+  exit 1
+fi
+
+# -------- type from branch --------
+if [[ "$BRANCH" =~ ^(fix|bugfix|hotfix)/ ]]; then
+  TYPE="fix"
+elif [[ "$BRANCH" =~ ^(feat|feature)/ ]]; then
+  TYPE="feat"
+elif [[ "$BRANCH" =~ ^(chore)/ ]]; then
+  TYPE="chore"
+elif [[ "$BRANCH" =~ ^(docs)/ ]]; then
+  TYPE="docs"
+elif [[ "$BRANCH" =~ ^(refactor)/ ]]; then
+  TYPE="refactor"
+elif [[ "$BRANCH" =~ ^(test|tests)/ ]]; then
+  TYPE="test"
+elif [[ "$BRANCH" =~ ^(style)/ ]]; then
+  TYPE="style"
+elif [[ "$BRANCH" =~ ^(perf)/ ]]; then
+  TYPE="perf"
+elif [[ "$BRANCH" =~ ^(ci)/ ]]; then
+  TYPE="ci"
+else
+  echo "❌ Branch must start with: feat/, fix/, chore/, docs/, refactor/, test/, style/, perf/, ci/"
+  echo "   Current branch: $BRANCH"
+  exit 1
+fi
+
+# -------- ticket from branch --------
+if [[ "$BRANCH" =~ ([A-Z]+-[0-9]+|[0-9]{3,}) ]]; then
+  TICKET="${BASH_REMATCH[1]}"
+else
+  TICKET=""
+fi
+
+# -------- get diff --------
+DIFF=$(git diff --cached --no-color 2>/dev/null)
+if [ -z "$DIFF" ]; then
+  echo "❌ No staged changes"
+  echo ""
+  echo "Run: git add <files>"
+  exit 1
+fi
+
+echo "🤖 Generating commit message..."
+
+# Truncate diff if too long (max 4000 chars)
+DIFF_TRUNCATED=$(echo "$DIFF" | head -c 4000)
+
+PROMPT="Generate a short git commit message body (max 50 chars). 
+Do not include type prefix or ticket number.
+Use present tense, lowercase.
+Only output the message text, nothing else.
+Do not wrap in quotes.
+
+Diff:
+$DIFF_TRUNCATED"
+
+PROMPT_ESCAPED=$(echo "$PROMPT" | jq -Rs .)
+
+# -------- call AI API --------
+CURL_OUTPUT=$(mktemp)
+trap "rm -f $CURL_OUTPUT" EXIT
+
+HTTP_STATUS=$(curl -s -w "%{http_code}" --max-time 30 "$GIT_AI_URL" \
+  -H "Authorization: Bearer $GIT_AI_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"model\": \"$GIT_AI_MODEL\",
+    \"messages\": [{\"role\": \"user\", \"content\": $PROMPT_ESCAPED}],
+    \"max_tokens\": 100
+  }" -o "$CURL_OUTPUT" 2>&1)
+
+CURL_EXIT=$?
+RESPONSE_BODY=$(cat "$CURL_OUTPUT" 2>/dev/null || echo "")
+
+# -------- handle curl errors --------
+if [ $CURL_EXIT -ne 0 ]; then
+  echo ""
+  echo "❌ Network Error (curl exit code: $CURL_EXIT)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  case $CURL_EXIT in
+    6)  echo "Could not resolve host" ;;
+    7)  echo "Failed to connect to host" ;;
+    28) echo "Connection timed out (30s)" ;;
+    *)  echo "curl error: $CURL_EXIT" ;;
+  esac
+  echo "URL: $GIT_AI_URL"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  exit 1
+fi
+
+# -------- handle HTTP errors --------
+if [ "$HTTP_STATUS" != "200" ]; then
+  echo ""
+  echo "❌ API Error (HTTP $HTTP_STATUS)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "URL: $GIT_AI_URL"
+  echo "Model: $GIT_AI_MODEL"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "Response:"
+  echo "$RESPONSE_BODY" | jq . 2>/dev/null || echo "$RESPONSE_BODY"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  exit 1
+fi
+
+# -------- parse response --------
+MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+
+if [ -z "$MESSAGE" ]; then
+  echo ""
+  echo "❌ Failed to parse AI response"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "Response:"
+  echo "$RESPONSE_BODY" | jq . 2>/dev/null || echo "$RESPONSE_BODY"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  exit 1
+fi
+
+# Clean message: remove quotes, newlines, trim, lowercase, limit length
+MESSAGE=$(echo "$MESSAGE" | tr -d '\n' | sed 's/^["'"'"']*//;s/["'"'"']*$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | head -c 60)
+
+# Build commit message
+if [ -n "$TICKET" ]; then
+  COMMIT_MSG="$TYPE: #$TICKET $MESSAGE"
+else
+  COMMIT_MSG="$TYPE: $MESSAGE"
+fi
+
+echo ""
+echo "📝 $COMMIT_MSG"
+echo ""
+
+# -------- confirm --------
+if [ "$SKIP_CONFIRM" = true ]; then
+  git commit -m "$COMMIT_MSG" "${EXTRA_ARGS[@]}"
+  exit 0
+fi
+
+read -r -p "Commit? [Y/n/e(dit)] " CONFIRM || { echo ""; echo "❌ Cancelled"; exit 1; }
+CONFIRM=${CONFIRM:-Y}
+
+if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
+  git commit -m "$COMMIT_MSG" "${EXTRA_ARGS[@]}"
+elif [[ "$CONFIRM" =~ ^[Ee]$ ]]; then
+  git commit -e -m "$COMMIT_MSG" "${EXTRA_ARGS[@]}"
+else
+  echo "❌ Cancelled"
+  exit 1
+fi
+
+
+export GIT_AI_URL="https://ai-proxy-space.kimedi.com/v1/chat/completions"
+export GIT_AI_MODEL="gemini-3-flash-preview"
+export GIT_AI_KEY="KEY"
