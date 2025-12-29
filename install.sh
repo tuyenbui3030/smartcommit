@@ -20,8 +20,42 @@ echo ""
 
 # -------- check requirements --------
 if ! command -v jq &> /dev/null; then
-  echo "❌ jq is required. Install: brew install jq"
-  exit 1
+  echo "📦 jq not found, attempting to install..."
+  
+  # Detect OS and install jq
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Linux - try apt-get first (Debian/Ubuntu)
+    if command -v apt-get &> /dev/null; then
+      sudo apt-get update && sudo apt-get install -y jq
+    elif command -v yum &> /dev/null; then
+      sudo yum install -y jq
+    elif command -v dnf &> /dev/null; then
+      sudo dnf install -y jq
+    elif command -v pacman &> /dev/null; then
+      sudo pacman -S --noconfirm jq
+    else
+      echo "❌ Could not detect package manager. Please install jq manually."
+      exit 1
+    fi
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    if command -v brew &> /dev/null; then
+      brew install jq
+    else
+      echo "❌ Homebrew not found. Install jq: brew install jq (after installing Homebrew)"
+      exit 1
+    fi
+  else
+    echo "❌ Unsupported OS. Please install jq manually."
+    exit 1
+  fi
+  
+  # Verify installation
+  if ! command -v jq &> /dev/null; then
+    echo "❌ jq installation failed. Please install manually."
+    exit 1
+  fi
+  echo "✅ jq installed successfully!"
 fi
 
 if ! command -v curl &> /dev/null; then
