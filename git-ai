@@ -309,8 +309,3 @@ else
   echo "❌ Cancelled"
   exit 1
 fi
-
-
-export GIT_AI_URL="https://ai-proxy-space.kimedi.com/v1/chat/completions"
-export GIT_AI_MODEL="gemini-3-flash-preview"
-export GIT_AI_KEY="KEY"
