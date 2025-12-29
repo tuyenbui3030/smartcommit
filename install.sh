@@ -101,7 +101,7 @@ fi
 # -------- install git-ai --------
 echo "📦 Installing git-ai to $INSTALL_PATH..."
 sudo cp "$TMP_FILE" "$INSTALL_PATH"
-sudo chmod +x "$INSTALL_PATH"
+sudo chmod 755 "$INSTALL_PATH"
 
 # -------- save config --------
 echo "📝 Saving config to $CONFIG_FILE..."
