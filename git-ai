@@ -11,6 +11,7 @@
 #   -v, --version   Show version
 #   -y, --yes       Skip confirmation prompt
 #   --setup         Configure API settings
+#   --upgrade       Upgrade to latest version
 #
 # Environment variables:
 #   GIT_AI_URL     - API endpoint (required)
@@ -122,6 +123,54 @@ EOF
       echo "   KEY     = ${SETUP_KEY:0:10}..."
       echo "   MODEL   = $SETUP_MODEL"
       echo "   STYLE   = $([ "$SETUP_DETAILED" = "true" ] && echo "detailed" || echo "short")"
+      exit 0
+      ;;
+    --upgrade)
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🔄 git-ai upgrade"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "Current version: v$VERSION"
+      echo ""
+      
+      REPO_URL="https://raw.githubusercontent.com/tuyenbui3030/smartcommit/main"
+      
+      # Check latest version
+      echo "🔍 Checking for updates..."
+      LATEST_SCRIPT=$(curl -fsSL "$REPO_URL/git-ai" 2>/dev/null)
+      if [ -z "$LATEST_SCRIPT" ]; then
+        echo "❌ Failed to fetch latest version"
+        exit 1
+      fi
+      
+      LATEST_VERSION=$(echo "$LATEST_SCRIPT" | grep -m1 'VERSION=' | cut -d'"' -f2)
+      echo "Latest version:  v$LATEST_VERSION"
+      echo ""
+      
+      if [ "$VERSION" = "$LATEST_VERSION" ]; then
+        echo "✅ You're already on the latest version!"
+        exit 0
+      fi
+      
+      # Determine install location
+      INSTALL_PATH=$(which git-ai 2>/dev/null || echo "/usr/local/bin/git-ai")
+      
+      echo "📦 Upgrading to v$LATEST_VERSION..."
+      echo "   Install path: $INSTALL_PATH"
+      echo ""
+      
+      # Check if we need sudo
+      if [ -w "$INSTALL_PATH" ] || [ -w "$(dirname "$INSTALL_PATH")" ]; then
+        echo "$LATEST_SCRIPT" > "$INSTALL_PATH"
+        chmod 755 "$INSTALL_PATH"
+      else
+        echo "⚠️  Root permission required"
+        echo "$LATEST_SCRIPT" | sudo tee "$INSTALL_PATH" > /dev/null
+        sudo chmod 755 "$INSTALL_PATH"
+      fi
+      
+      echo ""
+      echo "✅ Successfully upgraded to v$LATEST_VERSION!"
       exit 0
       ;;
     -y|--yes)
