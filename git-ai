@@ -11,23 +11,25 @@
 #   -v, --version   Show version
 #   -y, --yes       Skip confirmation prompt
 #   --setup         Configure API settings
+#   --upgrade       Upgrade to latest version
 #
 # Environment variables:
 #   GIT_AI_URL     - API endpoint (required)
 #   GIT_AI_KEY     - API key (required)
-#   GIT_AI_MODEL   - Model name (default: gpt-4)
+#   GIT_AI_MODEL   - Model name (default: gemini-2.5-flash-preview)
+#   GIT_AI_DETAILED - Generate detailed messages (true/false)
 #
 # Example:
 #   export GIT_AI_URL="https://api.openai.com/v1/chat/completions"
 #   export GIT_AI_KEY="sk-xxx"
-#   export GIT_AI_MODEL="gpt-4"
+#   export GIT_AI_MODEL="gemini-2.5-flash-preview"
 #
 # Branch naming convention:
 #   feat/123-description  → feat: #123 <message>
 #   fix/JIRA-88-bug       → fix: #JIRA-88 <message>
 # ============================================================
 
-VERSION="1.0.1"
+VERSION="1.0.2"
 
 # -------- parse arguments --------
 SKIP_CONFIRM=false
@@ -44,15 +46,60 @@ for arg in "$@"; do
       exit 0
       ;;
     --setup)
+      # Load existing config if available
+      CONFIG_FILE="$HOME/.config/git-ai/config"
+      if [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE"
+      fi
+      
+      # Extract host from existing URL (remove /v1/chat/completions)
+      OLD_HOST="${GIT_AI_URL%/v1/chat/completions}"
+      OLD_KEY="${GIT_AI_KEY:-}"
+      OLD_MODEL="${GIT_AI_MODEL:-gemini-2.5-flash-preview}"
+      OLD_DETAILED="${GIT_AI_DETAILED:-false}"
+      
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo "🤖 git-ai setup"
       echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       echo ""
-      read -r -p "API Host (e.g., https://api.openai.com): " SETUP_HOST
+      
+      # API Host
+      if [ -n "$OLD_HOST" ]; then
+        read -r -p "API Host [$OLD_HOST]: " SETUP_HOST
+        SETUP_HOST=${SETUP_HOST:-$OLD_HOST}
+      else
+        read -r -p "API Host (e.g., https://api.openai.com): " SETUP_HOST
+      fi
       SETUP_HOST=${SETUP_HOST%/}
-      read -r -p "API Key: " SETUP_KEY
-      read -r -p "Model (default: gpt-4): " SETUP_MODEL
-      SETUP_MODEL=${SETUP_MODEL:-gpt-4}
+      
+      # API Key
+      if [ -n "$OLD_KEY" ]; then
+        read -r -p "API Key [${OLD_KEY:0:10}...]: " SETUP_KEY
+        SETUP_KEY=${SETUP_KEY:-$OLD_KEY}
+      else
+        read -r -p "API Key: " SETUP_KEY
+      fi
+      
+      # Model
+      read -r -p "Model [$OLD_MODEL]: " SETUP_MODEL
+      SETUP_MODEL=${SETUP_MODEL:-$OLD_MODEL}
+      
+      echo ""
+      echo "Message style:"
+      echo "  1) Short  - feat: add cancel button"
+      echo "  2) Detail - feat(scope): summary + bullet list"
+      if [ "$OLD_DETAILED" = "true" ]; then
+        OLD_STYLE="2"
+      else
+        OLD_STYLE="1"
+      fi
+      read -r -p "Choose [$OLD_STYLE]: " SETUP_STYLE
+      SETUP_STYLE=${SETUP_STYLE:-$OLD_STYLE}
+      if [[ "$SETUP_STYLE" == "2" ]]; then
+        SETUP_DETAILED="true"
+      else
+        SETUP_DETAILED="false"
+      fi
       
       if [ -z "$SETUP_HOST" ] || [ -z "$SETUP_KEY" ]; then
         echo "❌ Host and Key are required"
@@ -64,6 +111,7 @@ for arg in "$@"; do
 GIT_AI_URL="$SETUP_HOST/v1/chat/completions"
 GIT_AI_KEY="$SETUP_KEY"
 GIT_AI_MODEL="$SETUP_MODEL"
+GIT_AI_DETAILED="$SETUP_DETAILED"
 EOF
       chmod 600 "$HOME/.config/git-ai/config"
       
@@ -71,9 +119,58 @@ EOF
       echo "✅ Config saved to ~/.config/git-ai/config"
       echo ""
       echo "🔧 Configuration:"
-      echo "   URL   = $SETUP_HOST/v1/chat/completions"
-      echo "   KEY   = ${SETUP_KEY:0:10}..."
-      echo "   MODEL = $SETUP_MODEL"
+      echo "   URL     = $SETUP_HOST/v1/chat/completions"
+      echo "   KEY     = ${SETUP_KEY:0:10}..."
+      echo "   MODEL   = $SETUP_MODEL"
+      echo "   STYLE   = $([ "$SETUP_DETAILED" = "true" ] && echo "detailed" || echo "short")"
+      exit 0
+      ;;
+    --upgrade)
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo "🔄 git-ai upgrade"
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      echo ""
+      echo "Current version: v$VERSION"
+      echo ""
+      
+      REPO_URL="https://raw.githubusercontent.com/tuyenbui3030/smartcommit/main"
+      
+      # Check latest version
+      echo "🔍 Checking for updates..."
+      LATEST_SCRIPT=$(curl -fsSL "$REPO_URL/git-ai" 2>/dev/null)
+      if [ -z "$LATEST_SCRIPT" ]; then
+        echo "❌ Failed to fetch latest version"
+        exit 1
+      fi
+      
+      LATEST_VERSION=$(echo "$LATEST_SCRIPT" | grep -m1 'VERSION=' | cut -d'"' -f2)
+      echo "Latest version:  v$LATEST_VERSION"
+      echo ""
+      
+      if [ "$VERSION" = "$LATEST_VERSION" ]; then
+        echo "✅ You're already on the latest version!"
+        exit 0
+      fi
+      
+      # Determine install location
+      INSTALL_PATH=$(which git-ai 2>/dev/null || echo "/usr/local/bin/git-ai")
+      
+      echo "📦 Upgrading to v$LATEST_VERSION..."
+      echo "   Install path: $INSTALL_PATH"
+      echo ""
+      
+      # Check if we need sudo
+      if [ -w "$INSTALL_PATH" ] || [ -w "$(dirname "$INSTALL_PATH")" ]; then
+        echo "$LATEST_SCRIPT" > "$INSTALL_PATH"
+        chmod 755 "$INSTALL_PATH"
+      else
+        echo "⚠️  Root permission required"
+        echo "$LATEST_SCRIPT" | sudo tee "$INSTALL_PATH" > /dev/null
+        sudo chmod 755 "$INSTALL_PATH"
+      fi
+      
+      echo ""
+      echo "✅ Successfully upgraded to v$LATEST_VERSION!"
       exit 0
       ;;
     -y|--yes)
@@ -118,7 +215,8 @@ if [ -z "${GIT_AI_KEY:-}" ]; then
   exit 1
 fi
 
-GIT_AI_MODEL="${GIT_AI_MODEL:-gpt-4}"
+GIT_AI_MODEL="${GIT_AI_MODEL:-gemini-2.5-flash-preview}"
+GIT_AI_DETAILED="${GIT_AI_DETAILED:-false}"
 
 # -------- check git state --------
 if ! git rev-parse --git-dir &> /dev/null; then
@@ -180,9 +278,49 @@ echo "🤖 Generating commit message..."
 # Truncate diff if too long (max 4000 chars)
 DIFF_TRUNCATED=$(echo "$DIFF" | head -c 4000)
 
-# Build prompt based on whether we detected a type
-if [ -n "$TYPE" ]; then
-  PROMPT="Generate a short git commit message body (max 50 chars). 
+# Build prompt based on detailed mode and whether we detected a type
+if [ "$GIT_AI_DETAILED" = "true" ]; then
+  # Detailed mode: generate structured multi-line message
+  if [ -n "$TYPE" ]; then
+    PROMPT="Generate a detailed git commit message with scope and bullet points.
+Format:
+(scope): short summary (max 50 chars)
+
+One paragraph explaining the change (2-3 sentences).
+
+- Bullet point for each significant change
+- Use present tense, start with verb
+- Be specific about what was added/changed/removed
+
+Do not include the type prefix in your response, only the scope and message.
+Do not wrap in quotes.
+Output ONLY the commit message, no explanations.
+
+Diff:
+$DIFF_TRUNCATED"
+  else
+    PROMPT="Generate a detailed git commit message with type, scope and bullet points.
+Format:
+type(scope): short summary (max 50 chars)
+
+One paragraph explaining the change (2-3 sentences).
+
+- Bullet point for each significant change
+- Use present tense, start with verb
+- Be specific about what was added/changed/removed
+
+Types: feat, fix, chore, docs, refactor, test, style, perf, ci
+Do not wrap in quotes.
+Output ONLY the commit message, no explanations.
+
+Diff:
+$DIFF_TRUNCATED"
+  fi
+  MAX_TOKENS=2000
+else
+  # Short mode (original behavior)
+  if [ -n "$TYPE" ]; then
+    PROMPT="Generate a short git commit message body (max 50 chars). 
 Do not include type prefix or ticket number.
 Use present tense, lowercase.
 Only output the message text, nothing else.
@@ -190,8 +328,8 @@ Do not wrap in quotes.
 
 Diff:
 $DIFF_TRUNCATED"
-else
-  PROMPT="Generate a short git commit message with type prefix (max 60 chars).
+  else
+    PROMPT="Generate a short git commit message with type prefix (max 60 chars).
 Use conventional commit format: type: message
 Types: feat, fix, chore, docs, refactor, test, style, perf, ci
 Use present tense, lowercase.
@@ -200,6 +338,8 @@ Do not wrap in quotes.
 
 Diff:
 $DIFF_TRUNCATED"
+  fi
+  MAX_TOKENS=100
 fi
 
 PROMPT_ESCAPED=$(echo "$PROMPT" | jq -Rs .)
@@ -214,7 +354,7 @@ HTTP_STATUS=$(curl -s -w "%{http_code}" --max-time 30 "$GIT_AI_URL" \
   -d "{
     \"model\": \"$GIT_AI_MODEL\",
     \"messages\": [{\"role\": \"user\", \"content\": $PROMPT_ESCAPED}],
-    \"max_tokens\": 100
+    \"max_tokens\": $MAX_TOKENS
   }" -o "$CURL_OUTPUT" 2>&1)
 
 CURL_EXIT=$?
@@ -263,33 +403,82 @@ if [ -z "$MESSAGE" ]; then
   exit 1
 fi
 
-# Clean message: remove quotes, newlines, trim, lowercase, limit length
-MESSAGE=$(echo "$MESSAGE" | tr -d '\n' | sed 's/^["'"'"']*//;s/["'"'"']*$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | head -c 60)
-
-# Build commit message
-if [ -n "$TYPE" ]; then
-  # Type detected from branch
-  if [ -n "$TICKET" ]; then
-    COMMIT_MSG="$TYPE: #$TICKET $MESSAGE"
-  else
-    COMMIT_MSG="$TYPE: $MESSAGE"
-  fi
-else
-  # AI generated full message with type
-  if [ -n "$TICKET" ]; then
-    # Insert ticket after type prefix (e.g., "feat: msg" -> "feat: #123 msg")
-    if [[ "$MESSAGE" =~ ^([a-z]+):(.*)$ ]]; then
-      COMMIT_MSG="${BASH_REMATCH[1]}: #$TICKET${BASH_REMATCH[2]}"
+# Build commit message based on mode
+if [ "$GIT_AI_DETAILED" = "true" ]; then
+  # Detailed mode: preserve multi-line structure
+  MESSAGE=$(echo "$MESSAGE" | sed "s/^[\"']*//;s/[\"']*$//")
+  
+  # Regex patterns for bash
+  SCOPE_REGEX='^\([^)]+\):'
+  TYPE_REGEX='^[a-z]+(\([^)]+\))?:'
+  
+  # For detailed mode with detected type, prepend type to first line
+  if [ -n "$TYPE" ]; then
+    FIRST_LINE=$(echo "$MESSAGE" | head -n 1)
+    REST=$(echo "$MESSAGE" | tail -n +2)
+    
+    # Check if first line starts with scope like "(scope):"
+    if [[ "$FIRST_LINE" =~ $SCOPE_REGEX ]]; then
+      FIRST_LINE="$TYPE$FIRST_LINE"
+    elif [[ ! "$FIRST_LINE" =~ $TYPE_REGEX ]]; then
+      FIRST_LINE="$TYPE: $FIRST_LINE"
+    fi
+    
+    # Add ticket if present
+    if [ -n "$TICKET" ]; then
+      FIRST_LINE=$(echo "$FIRST_LINE" | sed "s/: /: #$TICKET /")
+    fi
+    
+    if [ -n "$REST" ]; then
+      COMMIT_MSG="$FIRST_LINE
+$REST"
     else
-      COMMIT_MSG="#$TICKET $MESSAGE"
+      COMMIT_MSG="$FIRST_LINE"
     fi
   else
-    COMMIT_MSG="$MESSAGE"
+    # No type detected, use AI's full message
+    if [ -n "$TICKET" ]; then
+      FIRST_LINE=$(echo "$MESSAGE" | head -n 1)
+      REST=$(echo "$MESSAGE" | tail -n +2)
+      FIRST_LINE=$(echo "$FIRST_LINE" | sed "s/: /: #$TICKET /")
+      if [ -n "$REST" ]; then
+        COMMIT_MSG="$FIRST_LINE
+$REST"
+      else
+        COMMIT_MSG="$FIRST_LINE"
+      fi
+    else
+      COMMIT_MSG="$MESSAGE"
+    fi
+  fi
+else
+  # Short mode: original behavior
+  MESSAGE=$(echo "$MESSAGE" | tr -d '\n' | sed "s/^[\"']*//;s/[\"']*$//" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | head -c 60)
+
+  if [ -n "$TYPE" ]; then
+    if [ -n "$TICKET" ]; then
+      COMMIT_MSG="$TYPE: #$TICKET $MESSAGE"
+    else
+      COMMIT_MSG="$TYPE: $MESSAGE"
+    fi
+  else
+    if [ -n "$TICKET" ]; then
+      if [[ "$MESSAGE" =~ ^([a-z]+):(.*)$ ]]; then
+        COMMIT_MSG="${BASH_REMATCH[1]}: #$TICKET${BASH_REMATCH[2]}"
+      else
+        COMMIT_MSG="#$TICKET $MESSAGE"
+      fi
+    else
+      COMMIT_MSG="$MESSAGE"
+    fi
   fi
 fi
 
 echo ""
-echo "📝 $COMMIT_MSG"
+echo "📝 Commit message:"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "$COMMIT_MSG"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
 # -------- confirm --------
