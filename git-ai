@@ -30,7 +30,7 @@
 #   fix/JIRA-88-bug       → fix: #JIRA-88 <message>
 # ============================================================
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 
 # -------- parse arguments --------
 SKIP_CONFIRM=false
@@ -504,6 +504,10 @@ if [ "$SKIP_CONFIRM" = true ]; then
       FEATURE_NAME=${BRANCH#feature/}
       echo "🚀 Publishing feature branch: $FEATURE_NAME"
       git flow feature publish "$FEATURE_NAME" 2>/dev/null || git push -u origin "$BRANCH"
+    elif [[ "$BRANCH" == hotfix/* ]]; then
+      HOTFIX_NAME=${BRANCH#hotfix/}
+      echo "🚀 Publishing hotfix branch: $HOTFIX_NAME"
+      git flow hotfix publish "$HOTFIX_NAME" 2>/dev/null || git push -u origin "$BRANCH"
     else
       echo "🚀 Pushing to origin..."
       git push
